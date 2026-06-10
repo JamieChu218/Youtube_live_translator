@@ -43,7 +43,7 @@ class Translator:
                 continue
 
             try:
-                response = self.client.chat.completions.create(
+                stream = self.client.chat.completions.create(
                     model=config.GPT_MODEL,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -51,14 +51,30 @@ class Translator:
                     ],
                     temperature=0.3,
                     max_tokens=300,
+                    stream=True,
                 )
-                translation = response.choices[0].message.content.strip()
-                if translation:
-                    logger.info(f"翻譯結果：{translation}")
-                    self.result_queue.put({
-                        "original": japanese_text,
-                        "translation": translation,
-                    })
+
+                started = False
+                pieces = []
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta.content
+                    if not delta:
+                        continue
+                    if not started:
+                        # 去掉開頭可能的空白，第一個有內容的 token 才開卡片
+                        delta = delta.lstrip()
+                        if not delta:
+                            continue
+                        self.result_queue.put({"type": "start", "original": japanese_text})
+                        started = True
+                    pieces.append(delta)
+                    self.result_queue.put({"type": "delta", "text": delta})
+
+                if started:
+                    self.result_queue.put({"type": "end"})
+                    logger.info(f"翻譯結果：{''.join(pieces).strip()}")
 
             except Exception as e:
                 logger.error(f"GPT 翻譯錯誤：{e}")

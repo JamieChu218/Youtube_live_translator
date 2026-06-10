@@ -86,7 +86,21 @@ class AudioCapture:
                     logger.debug(f"靜音跳過 (RMS={rms:.1f})")
                     return
 
-                self.audio_queue.put(mono_int16.tobytes())
+                # 非阻塞放入：絕對不能在音訊 callback 裡 block（會造成爆音/掉字）。
+                # 佇列滿代表辨識跟不上 → 丟掉最舊的塊、保留最新，避免延遲越積越多。
+                chunk_bytes = mono_int16.tobytes()
+                try:
+                    self.audio_queue.put_nowait(chunk_bytes)
+                except queue.Full:
+                    try:
+                        self.audio_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        self.audio_queue.put_nowait(chunk_bytes)
+                    except queue.Full:
+                        pass
+                    logger.warning("⚠️ 辨識跟不上，丟棄最舊音訊塊以維持即時性")
 
         with sd.InputStream(
             samplerate=config.SAMPLE_RATE,

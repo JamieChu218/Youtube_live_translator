@@ -40,6 +40,11 @@ SAMPLE_RATE      = 16000    # Whisper 建議 16 kHz
 CHANNELS         = 1        # 單聲道
 CHUNK_SECONDS    = 5        # 每幾秒送一次辨識（建議 4~8）
 SILENCE_THRESHOLD = 200     # 音量低於此值視為靜音，不送辨識（節省費用）
+AUDIO_QUEUE_MAXSIZE = 5     # 音訊佇列上限；滿了會丟棄最舊的塊（避免延遲累積與 callback 阻塞）
+
+# --- 辨識設定 ---
+# gpt-4o-mini-transcribe：較新、延遲較低、準確度相當；要回到舊版可改回 "whisper-1"
+STT_MODEL   = "gpt-4o-mini-transcribe"
 
 # --- 翻譯設定 ---
 SOURCE_LANG = "日文"
@@ -52,3 +57,4 @@ FONT_SIZE       = 18
 MAX_LINES       = 6             # 視窗最多顯示幾行
 WINDOW_WIDTH    = 900
 WINDOW_HEIGHT   = 300
+POLL_INTERVAL_MS = 60           # 字幕視窗輪詢間隔（ms）；越小越即時，60 約等於 16fps

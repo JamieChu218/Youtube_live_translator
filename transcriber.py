@@ -80,7 +80,7 @@ class Transcriber:
             try:
                 wav_file = _bytes_to_wav(audio_bytes)
                 response = self.client.audio.transcriptions.create(
-                    model="whisper-1",
+                    model=config.STT_MODEL,
                     file=wav_file,
                     language="ja",
                     response_format="text",
