@@ -1,9 +1,36 @@
 # ============================================================
 #  config.py  ─  設定檔
-#  請在這裡填入你的 OpenAI API Key 以及選擇音訊裝置
+#  ⚠️ 不要把 API Key 寫死在這裡！請改用環境變數或 .env 檔。
 # ============================================================
 
-OPENAI_API_KEY = "REDACTED-OLD-KEY-REVOKED"   # ← 填入你的 API Key
+import os
+
+
+def _read_api_key():
+    """
+    依序嘗試取得 OpenAI API Key：
+      1. 環境變數 OPENAI_API_KEY
+      2. 專案目錄下的 .env 檔（格式：OPENAI_API_KEY=sk-...，已被 .gitignore 排除）
+    找不到時回傳 None，讓實際呼叫 API 時才報錯（這樣 --list-devices 仍可使用）。
+    """
+    key = os.environ.get("OPENAI_API_KEY")
+    if key:
+        return key
+
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                name, value = line.split("=", 1)
+                if name.strip() == "OPENAI_API_KEY":
+                    return value.strip().strip('"').strip("'")
+    return None
+
+
+OPENAI_API_KEY = _read_api_key()
 
 # --- 音訊擷取設定 ---
 # 執行 main.py 時加上 --list-devices 參數可以列出所有裝置編號

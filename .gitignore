@@ -1,0 +1,9 @@
+# 機密：絕對不要 commit
+.env
+
+# Python 編譯快取（注意：.pyc 也會把寫死的字串編進去，務必排除）
+__pycache__/
+*.py[cod]
+
+# 日誌
+*.log
