@@ -51,6 +51,7 @@ MIN_SPEECH_SECONDS  = 0.8   # 一段語音至少要這麼長才送出（過濾�
 # --- 辨識設定 ---
 # gpt-4o-mini-transcribe：較新、延遲較低、準確度相當；要回到舊版可改回 "whisper-1"
 STT_MODEL   = "gpt-4o-mini-transcribe"
+STT_WORKERS = 3   # 並行辨識的 worker 數；連續說話時清空積壓更快（結果會自動依序排回）
 
 # --- 翻譯設定 ---
 SOURCE_LANG = "日文"
