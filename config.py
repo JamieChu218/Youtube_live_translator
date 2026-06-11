@@ -42,6 +42,12 @@ CHUNK_SECONDS    = 5        # 每幾秒送一次辨識（建議 4~8）
 SILENCE_THRESHOLD = 200     # 音量低於此值視為靜音，不送辨識（節省費用）
 AUDIO_QUEUE_MAXSIZE = 5     # 音訊佇列上限；滿了會丟棄最舊的塊（避免延遲累積與 callback 阻塞）
 
+# --- 動態斷句（Phase 2）---
+# 偵測到停頓就立刻斷句送辨識；沒停頓時最多累積到 CHUNK_SECONDS(5s) 才強制斷句。
+USE_DYNAMIC_SEGMENTATION = True   # False = 回到固定 5 秒切塊
+PAUSE_SECONDS       = 0.6   # 連續靜音達此長度即斷句（越小越即時，太小會把句子切碎）
+MIN_SPEECH_SECONDS  = 0.8   # 一段語音至少要這麼長才送出（過濾雜音/單音）
+
 # --- 辨識設定 ---
 # gpt-4o-mini-transcribe：較新、延遲較低、準確度相當；要回到舊版可改回 "whisper-1"
 STT_MODEL   = "gpt-4o-mini-transcribe"
