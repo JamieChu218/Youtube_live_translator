@@ -89,10 +89,12 @@ pip install pyinstaller
 
 | 檔案 | 職責 |
 |------|------|
-| `main.py`            | 程式入口、Pipeline 管線管理、Router 分流、字幕視窗 |
+| `main.py`            | 程式入口(組裝精靈/管線/視窗) |
+| `pipeline.py`        | 管線管理(Router 分流 + 模組生命週期 start/stop/restart) |
 | `audio_capture.py`   | 從 CABLE 裝置擷取音訊、動態斷句(VAD)、非阻塞入列 |
 | `transcriber.py`     | 並行 STT 辨識、幻覺過濾、依序號重排輸出 |
 | `translator.py`      | GPT 日文 → 繁中串流翻譯 |
+| `subtitle_window.py` | 置頂字幕視窗(串流逐字顯示、模式切換) |
 | `settings_window.py` | ⚙ 分頁設定視窗 |
 | `wizard.py`          | 首次啟動設定精靈 |
 | `config.py`          | 設定管理(內建預設 + settings.json 使用者覆蓋) |

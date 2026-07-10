@@ -6,14 +6,13 @@
 #  外觀類變更即時生效，不需重啟。
 # ============================================================
 
-import threading
 import logging
 
 import customtkinter as ctk
 
 import config
 import theme
-from ui_common import device_choices, test_api_key
+from ui_common import device_choices, test_api_key_async
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +152,8 @@ class SettingsWindow(ctk.CTkToplevel):
             placeholder_text="sk-...",
         )
         self.api_entry.pack(fill="x", padx=12, pady=(4, 0))
-        if config._settings.get("API_KEY"):
-            self.api_entry.insert(0, config._settings["API_KEY"])
+        if config.get_saved("API_KEY"):
+            self.api_entry.insert(0, config.get_saved("API_KEY"))
 
         key_row = ctk.CTkFrame(tab, fg_color="transparent")
         key_row.pack(fill="x", padx=12, pady=(6, 0))
@@ -211,12 +210,11 @@ class SettingsWindow(ctk.CTkToplevel):
         key = self.api_entry.get().strip() or (config.OPENAI_API_KEY or "")
         self.key_status.configure(text="測試中...", text_color=theme.TEXT_DIM)
 
-        def worker():
-            ok, msg = test_api_key(key)
-            color = theme.GOOD if ok else theme.DANGER
-            self.after(0, lambda: self.key_status.configure(text=msg, text_color=color))
+        def done(ok, msg):
+            self.key_status.configure(
+                text=msg, text_color=theme.GOOD if ok else theme.DANGER)
 
-        threading.Thread(target=worker, daemon=True).start()
+        test_api_key_async(key, self, done)
 
     # ── 辨識與翻譯 ─────────────────────────────────────────
 

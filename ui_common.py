@@ -3,6 +3,7 @@
 # ============================================================
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +50,15 @@ def test_api_key(key: str, timeout: float = 10):
         if "401" in msg or "invalid_api_key" in msg.lower() or "incorrect api key" in msg.lower():
             return False, "❌ API Key 無效"
         return False, f"❌ 連線失敗：{msg[:80]}"
+
+
+def test_api_key_async(key: str, tk_widget, callback):
+    """
+    在背景執行緒驗證 API key，完成後回到 UI 執行緒呼叫 callback(ok, msg)。
+    tk_widget：任一存活的 tk 元件（用其 after() 排回主執行緒）。
+    """
+    def worker():
+        ok, msg = test_api_key(key)
+        tk_widget.after(0, lambda: callback(ok, msg))
+
+    threading.Thread(target=worker, daemon=True).start()

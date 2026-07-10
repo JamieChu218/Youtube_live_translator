@@ -121,6 +121,11 @@ def save(updates: dict):
     load()
 
 
+def get_saved(key: str, default=""):
+    """讀取 settings.json 中已儲存的值（不含內建預設），UI 模組請用這個而非 _settings。"""
+    return _settings.get(key, default)
+
+
 def is_first_run() -> bool:
     """settings.json 不存在，或完全沒有可用的 API key → 需要首次精靈。"""
     return (not os.path.exists(SETTINGS_PATH)) or (OPENAI_API_KEY is None)

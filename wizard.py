@@ -5,7 +5,6 @@
 #  完成時寫入 settings.json；使用者關窗/取消回傳 False。
 # ============================================================
 
-import threading
 import webbrowser
 import logging
 
@@ -13,7 +12,7 @@ import customtkinter as ctk
 
 import config
 import theme
-from ui_common import device_choices, find_cable_display, test_api_key
+from ui_common import device_choices, find_cable_display, test_api_key_async
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +59,7 @@ def run_wizard() -> bool:
                              fg_color=theme.ACCENT)
     next_btn.pack(side="right")
 
-    steps = []          # [(建立函式, frame), ...]
-    frames = []
+    steps = []          # 各步驟的建立函式
 
     def _clear_body():
         for child in body.winfo_children():
@@ -115,8 +113,8 @@ def run_wizard() -> bool:
         entry = ctk.CTkEntry(body, show="•", font=("Consolas", 12),
                              placeholder_text="sk-...")
         entry.pack(fill="x", padx=24)
-        if config._settings.get("API_KEY"):
-            entry.insert(0, config._settings["API_KEY"])
+        if config.get_saved("API_KEY"):
+            entry.insert(0, config.get_saved("API_KEY"))
 
         row = ctk.CTkFrame(body, fg_color="transparent")
         row.pack(fill="x", padx=24, pady=8)
@@ -127,18 +125,14 @@ def run_wizard() -> bool:
             key = entry.get().strip()
             status.configure(text="測試中...", text_color=theme.TEXT_DIM)
 
-            def worker():
-                ok, msg = test_api_key(key)
+            def done(ok, msg):
+                status.configure(text=msg,
+                                 text_color=theme.GOOD if ok else theme.DANGER)
+                if ok:
+                    state["key_verified"] = True
+                    state["api_key"] = key
 
-                def done():
-                    status.configure(text=msg,
-                                     text_color=theme.GOOD if ok else theme.DANGER)
-                    if ok:
-                        state["key_verified"] = True
-                        state["api_key"] = key
-                root.after(0, done)
-
-            threading.Thread(target=worker, daemon=True).start()
+            test_api_key_async(key, root, done)
 
         ctk.CTkButton(row, text="測試連線", width=90, height=28,
                       font=(theme.FONT_FAMILY, 12),
