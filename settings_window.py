@@ -88,23 +88,57 @@ class SettingsWindow(ctk.CTkToplevel):
                      ).pack(fill="x", padx=12, pady=(0, 2))
 
     def _slider(self, parent, label, from_, to, steps, value, fmt):
-        """建立含即時數值顯示的滑桿，回傳取值函式。"""
+        """
+        建立「滑桿 + 可輸入數值欄」的調整列，回傳取值函式。
+        - 滑桿拖動 → 欄位同步顯示
+        - 欄位輸入（Enter 或失焦）→ 防呆後套用到滑桿：
+            超出範圍夾到最大/最小值；整數欄四捨五入；小數欄固定兩位
+        """
+        is_int = fmt == "{:.0f}"
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
         ctk.CTkLabel(row, text=label, width=170, anchor="w",
                      font=(theme.FONT_FAMILY, 13)).pack(side="left")
-        val_lbl = ctk.CTkLabel(row, text=fmt.format(value), width=56,
-                               font=(theme.FONT_FAMILY, 12),
-                               text_color=theme.TEXT_DIM)
-        val_lbl.pack(side="right")
+
         var = ctk.DoubleVar(value=value)
+        entry = ctk.CTkEntry(row, width=64, justify="right",
+                             font=(theme.FONT_FAMILY, 12),
+                             fg_color=theme.PANEL_2, border_color=theme.BORDER)
+        entry.pack(side="right")
+
+        def set_entry(v):
+            entry.delete(0, "end")
+            entry.insert(0, fmt.format(v))
+
+        set_entry(value)
+
         slider = ctk.CTkSlider(
             row, from_=from_, to=to, number_of_steps=steps,
             variable=var, progress_color=theme.ACCENT,
-            command=lambda v: val_lbl.configure(text=fmt.format(v)),
+            command=set_entry,
         )
         slider.pack(side="left", fill="x", expand=True, padx=8)
-        return lambda: var.get()
+
+        def commit(event=None):
+            raw = entry.get().strip().replace("，", ".").replace(",", ".")
+            try:
+                v = float(raw)
+            except ValueError:
+                set_entry(var.get())    # 無效輸入 → 還原目前值
+                return
+            v = max(from_, min(to, v))              # 超界 → 夾到邊界
+            v = float(round(v)) if is_int else round(v, 2)
+            var.set(v)
+            set_entry(v)
+
+        entry.bind("<Return>", commit)
+        entry.bind("<FocusOut>", commit)
+
+        def getter():
+            commit()   # 儲存時把「打了字但還沒按 Enter」的輸入也一併生效
+            return var.get()
+
+        return getter
 
     # ── 一般 ───────────────────────────────────────────────
 
@@ -235,7 +269,7 @@ class SettingsWindow(ctk.CTkToplevel):
         self._hint(tab, "調大→句子更完整但延遲略增；調小→更即時但可能切碎。")
 
         self.get_min_speech = self._slider(tab, "最短語音長度（秒）", 0.2, 2.0, 18,
-                                           config.MIN_SPEECH_SECONDS, "{:.1f}")
+                                           config.MIN_SPEECH_SECONDS, "{:.2f}")
         self._hint(tab, "過短的聲音片段不送辨識；調小可保留短應答（如「うん」）。")
 
         self.get_chunk = self._slider(tab, "斷句上限（秒）", 3, 8, 5,
@@ -268,7 +302,7 @@ class SettingsWindow(ctk.CTkToplevel):
             "TARGET_LANG": self.tgt_entry.get().strip() or "繁體中文",
             "USE_DYNAMIC_SEGMENTATION": bool(self.dyn_switch.get()),
             "PAUSE_SECONDS": round(self.get_pause(), 2),
-            "MIN_SPEECH_SECONDS": round(self.get_min_speech(), 1),
+            "MIN_SPEECH_SECONDS": round(self.get_min_speech(), 2),
             "CHUNK_SECONDS": int(round(self.get_chunk())),
             "SILENCE_THRESHOLD": int(round(self.get_silence())),
             "WINDOW_OPACITY": round(self.get_opacity(), 2),
