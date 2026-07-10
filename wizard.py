@@ -79,9 +79,9 @@ def run_wizard() -> bool:
                 "\n這個工具會擷取電腦正在播放的日文直播聲音，"
                 "即時辨識並翻譯成繁體中文字幕。\n\n"
                 "使用前需要：\n\n"
-                "  1️⃣  安裝 VB-CABLE 虛擬音效裝置（免費）\n"
+                "  ①  安裝 VB-CABLE 虛擬音效裝置（免費）\n"
                 "       並把要翻譯的聲音輸出設為「CABLE Input」\n\n"
-                "  2️⃣  一把 OpenAI API Key（下一步填入）\n"
+                "  ②  一把 OpenAI API Key（下一步填入）\n"
             ),
         ).pack(anchor="w", padx=24, pady=(8, 0))
 
@@ -184,6 +184,15 @@ def run_wizard() -> bool:
                 text="⚠️ 未偵測到 CABLE 裝置。若尚未安裝 VB-CABLE，"
                      "可先選「自動偵測」，安裝後重新啟動程式即可。",
             ).pack(anchor="w", padx=24, pady=(8, 0))
+
+        ctk.CTkLabel(
+            body, justify="left", wraplength=520,
+            font=(theme.FONT_FAMILY, 12), text_color=theme.TEXT_DIM,
+            text="提醒：這裡只是選擇程式要「聽」哪個裝置，不會更改系統音訊設定。\n"
+                 "要讓聲音進得來，請把播放來源的輸出設為「CABLE Input」——\n"
+                 "可在 Windows 音量混合器對單一程式（如瀏覽器）設定，"
+                 "或將系統預設輸出改為 CABLE Input。",
+        ).pack(anchor="w", padx=24, pady=(10, 0))
 
     steps.extend([build_welcome, build_api_key, build_device])
 
