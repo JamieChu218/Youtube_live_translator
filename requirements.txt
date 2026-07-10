@@ -1,3 +1,7 @@
 openai>=1.30.0
 sounddevice>=0.4.6
 numpy>=1.24.0
+customtkinter>=6.0.0
+
+# 開發/打包用（一般執行不需要）：
+#   pip install pyinstaller

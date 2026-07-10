@@ -7,3 +7,8 @@ __pycache__/
 
 # 日誌
 *.log
+
+# PyInstaller 建置產物
+build/
+dist/
+*.spec

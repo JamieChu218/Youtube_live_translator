@@ -1,5 +1,5 @@
 # ============================================================
-#  main.py  ─  主程式入口 + 即時字幕顯示視窗 (Tkinter)
+#  main.py  ─  主程式入口 + 即時字幕視窗 (CustomTkinter)
 #
 #  資料流：
 #    AudioCapture → audio_queue
@@ -8,7 +8,7 @@
 #    Translator   → result_queue
 #
 #  使用方式：
-#    python main.py              # 正常啟動
+#    python main.py                 # 正常啟動（首次會進設定精靈）
 #    python main.py --list-devices  # 列出所有音訊裝置
 # ============================================================
 
@@ -19,7 +19,10 @@ import threading
 import tkinter as tk
 from datetime import datetime
 
+import customtkinter as ctk
+
 import config
+import theme
 from audio_capture import AudioCapture, list_devices
 from transcriber import Transcriber
 from translator import Translator
@@ -29,7 +32,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("translator.log", encoding="utf-8"),
+        logging.FileHandler(config.LOG_PATH, encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -85,110 +88,237 @@ class Router:
 
 
 # ══════════════════════════════════════════════════════════
-#  字幕視窗
+#  Pipeline：翻譯管線的統一管理（start / stop / restart）
 # ══════════════════════════════════════════════════════════
 
-class SubtitleWindow:
+class Pipeline:
+    """
+    包裝 AudioCapture / Transcriber / Translator / Router 的生命週期。
+    設定變更後呼叫 restart() 以新設定重建所有模組。
+    result_queue 由外部（字幕視窗）持有，重啟時不重建。
+    """
+
     def __init__(self, result_queue: queue.Queue, subtitle_only: threading.Event):
         self.result_queue  = result_queue
         self.subtitle_only = subtitle_only
+        self._modules = []
+        self.running = False
 
-        self.root = tk.Tk()
+    def start(self):
+        """回傳 (成功與否, 錯誤訊息)。"""
+        if self.running:
+            return True, None
+        if not config.OPENAI_API_KEY:
+            return False, "尚未設定 OpenAI API Key，請開啟「⚙ 設定」填入。"
+
+        try:
+            audio_queue     = queue.Queue(maxsize=config.AUDIO_QUEUE_MAXSIZE)
+            text_queue      = queue.Queue()
+            translate_queue = queue.Queue()
+
+            capture     = AudioCapture(audio_queue)   # 找不到裝置會 raise RuntimeError
+            transcriber = Transcriber(audio_queue, text_queue)
+            translator  = Translator(translate_queue, self.result_queue)
+            router      = Router(text_queue, translate_queue,
+                                 self.result_queue, self.subtitle_only)
+        except RuntimeError as e:
+            return False, str(e)
+        except Exception as e:
+            logger.exception("管線初始化失敗")
+            return False, f"管線初始化失敗：{e}"
+
+        self._modules = [capture, transcriber, translator, router]
+        for m in self._modules:
+            m.start()
+        self.running = True
+        logger.info("✅ 管線已啟動")
+        return True, None
+
+    def stop(self):
+        for m in self._modules:
+            try:
+                m.stop()
+            except Exception:
+                logger.exception("模組停止時發生錯誤")
+        self._modules = []
+        self.running = False
+        logger.info("🛑 管線已停止")
+
+    def restart(self):
+        """以目前 config 重建整條管線。回傳 (成功與否, 錯誤訊息)。"""
+        self.stop()
+        return self.start()
+
+
+# ══════════════════════════════════════════════════════════
+#  字幕視窗（CustomTkinter）
+# ══════════════════════════════════════════════════════════
+
+class SubtitleWindow:
+    def __init__(self, result_queue: queue.Queue,
+                 subtitle_only: threading.Event,
+                 pipeline: Pipeline):
+        self.result_queue  = result_queue
+        self.subtitle_only = subtitle_only
+        self.pipeline      = pipeline
+        self._settings_win = None
+
+        theme.apply()
+        self.root = ctk.CTk(fg_color=theme.BG)
         self.root.title("🎌 日文直播翻譯")
-        self.root.geometry(f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}+100+800")
-        self.root.configure(bg="black")
+        self.root.geometry(
+            f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}+100+800")
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", config.WINDOW_OPACITY)
         self.root.resizable(True, True)
 
         # ── 工具列 ──
-        toolbar = tk.Frame(self.root, bg="#1a1a1a", pady=2)
-        toolbar.pack(fill=tk.X)
+        toolbar = ctk.CTkFrame(self.root, fg_color=theme.PANEL, corner_radius=0)
+        toolbar.pack(fill="x")
+        self._toolbar = toolbar
 
-        tk.Label(
+        title_lbl = ctk.CTkLabel(
             toolbar, text="🎌 日文直播即時翻譯",
-            bg="#1a1a1a", fg="#aaaaaa", font=("微軟正黑體", 10)
-        ).pack(side=tk.LEFT, padx=8)
+            text_color=theme.TEXT_DIM,
+            font=(theme.FONT_FAMILY, 13),
+        )
+        title_lbl.pack(side="left", padx=(12, 8), pady=6)
 
-        self.mode_btn = tk.Button(
+        self.mode_seg = ctk.CTkSegmentedButton(
             toolbar,
-            text="切換：字幕模式",
-            command=self._toggle_mode,
-            bg="#1a5276", fg="white",
-            relief=tk.FLAT, padx=10, pady=1,
-            font=("微軟正黑體", 10),
-            cursor="hand2",
+            values=["翻譯模式", "字幕模式"],
+            command=self._on_mode_change,
+            font=(theme.FONT_FAMILY, 12),
+            selected_color=theme.ACCENT,
+            selected_hover_color=theme.ACCENT,
+            unselected_color=theme.PANEL_2,
+            fg_color=theme.PANEL_2,
+            height=28,
         )
-        self.mode_btn.pack(side=tk.LEFT, padx=8)
+        self.mode_seg.set("翻譯模式")
+        self.mode_seg.pack(side="left", padx=8, pady=6)
 
-        self.mode_label = tk.Label(
-            toolbar, text="● 翻譯模式",
-            bg="#1a1a1a", fg="#2ecc71",
-            font=("微軟正黑體", 10, "bold")
+        # 右側：⚙ 設定、清除、狀態
+        self.settings_btn = ctk.CTkButton(
+            toolbar, text="⚙", width=34, height=28,
+            font=(theme.FONT_FAMILY, 14),
+            fg_color=theme.PANEL_2, hover_color=theme.BORDER,
+            command=self._open_settings,
         )
-        self.mode_label.pack(side=tk.LEFT, padx=4)
+        self.settings_btn.pack(side="right", padx=(4, 12), pady=6)
+
+        clear_btn = ctk.CTkButton(
+            toolbar, text="清除", width=52, height=28,
+            font=(theme.FONT_FAMILY, 12),
+            fg_color=theme.PANEL_2, hover_color=theme.BORDER,
+            command=self._clear,
+        )
+        clear_btn.pack(side="right", padx=4, pady=6)
 
         self.status_var = tk.StringVar(value="⏳ 等待音訊...")
-        tk.Label(
+        ctk.CTkLabel(
             toolbar, textvariable=self.status_var,
-            bg="#1a1a1a", fg="#aaaaaa", font=("微軟正黑體", 10)
-        ).pack(side=tk.RIGHT, padx=8)
+            text_color=theme.TEXT_DIM, font=(theme.FONT_FAMILY, 12),
+        ).pack(side="right", padx=8, pady=6)
 
-        tk.Button(
-            toolbar, text="清除", command=self._clear,
-            bg="#333", fg="white", relief=tk.FLAT, padx=6,
-            cursor="hand2",
-        ).pack(side=tk.RIGHT, padx=4)
+        # ── 字幕文字框（沿用 tk.Text 以保留 tag/串流邏輯）──
+        body = ctk.CTkFrame(self.root, fg_color=theme.BG, corner_radius=0)
+        body.pack(fill="both", expand=True)
 
-        # ── 字幕文字框 ──
         self.text_widget = tk.Text(
-            self.root,
-            bg="black", fg="white",
-            font=("微軟正黑體", config.FONT_SIZE),
+            body,
+            bg=theme.BG, fg=theme.TEXT_MAIN,
+            font=(theme.FONT_FAMILY, config.FONT_SIZE),
             wrap=tk.WORD,
             state=tk.DISABLED,
             relief=tk.FLAT,
-            padx=10, pady=6,
+            padx=14, pady=8,
             cursor="arrow",
+            highlightthickness=0,
+            insertbackground=theme.TEXT_MAIN,
         )
-        self.text_widget.pack(fill=tk.BOTH, expand=True)
+        self.text_widget.pack(fill=tk.BOTH, expand=True, padx=2, pady=(2, 4))
 
-        self.text_widget.tag_config("time",           foreground="#666666", font=("微軟正黑體", 10))
-        self.text_widget.tag_config("japanese",       foreground="#aaddff", font=("微軟正黑體", config.FONT_SIZE - 2))
-        self.text_widget.tag_config("japanese_large", foreground="#ffffff", font=("微軟正黑體", config.FONT_SIZE, "bold"))
-        self.text_widget.tag_config("translation",    foreground="#ffffff", font=("微軟正黑體", config.FONT_SIZE, "bold"))
-        self.text_widget.tag_config("separator",      foreground="#333333")
+        self._config_tags()
 
-        toolbar.bind("<ButtonPress-1>", self._start_drag)
-        toolbar.bind("<B1-Motion>",     self._do_drag)
+        # 拖曳視窗（工具列與標題都可拖）
+        for w in (toolbar, title_lbl):
+            w.bind("<ButtonPress-1>", self._start_drag)
+            w.bind("<B1-Motion>",     self._do_drag)
 
         self._poll_results()
 
-    def _toggle_mode(self):
-        if self.subtitle_only.is_set():
-            self.subtitle_only.clear()
-            self.mode_btn.config(text="切換：字幕模式", bg="#1a5276")
-            self.mode_label.config(text="● 翻譯模式", fg="#2ecc71")
-            logger.info("🔄 切換至翻譯模式")
-        else:
-            self.subtitle_only.set()
-            self.mode_btn.config(text="切換：翻譯模式", bg="#6e2fa1")
-            self.mode_label.config(text="● 字幕模式", fg="#a855f7")
-            logger.info("🔄 切換至字幕模式")
+    # ── 外觀 ───────────────────────────────────────────────
+    def _config_tags(self):
+        fs = config.FONT_SIZE
+        self.text_widget.config(font=(theme.FONT_FAMILY, fs))
+        self.text_widget.tag_config("time",           foreground=theme.TAG_TIME,        font=(theme.FONT_FAMILY, max(9, fs - 8)))
+        self.text_widget.tag_config("japanese",       foreground=theme.TAG_JAPANESE,    font=(theme.FONT_FAMILY, fs - 2))
+        self.text_widget.tag_config("japanese_large", foreground=theme.TAG_TRANSLATION, font=(theme.FONT_FAMILY, fs, "bold"))
+        self.text_widget.tag_config("translation",    foreground=theme.TAG_TRANSLATION, font=(theme.FONT_FAMILY, fs, "bold"))
+        self.text_widget.tag_config("system",         foreground=theme.TAG_SYSTEM,      font=(theme.FONT_FAMILY, fs - 4))
+        self.text_widget.tag_config("separator",      foreground=theme.TAG_SEPARATOR)
 
+    def apply_appearance(self):
+        """設定視窗變更外觀後即時套用（不需重啟管線）。"""
+        self.root.attributes("-alpha", config.WINDOW_OPACITY)
+        self._config_tags()
+
+    # ── 模式切換 ───────────────────────────────────────────
+    def _on_mode_change(self, value: str):
+        if value == "字幕模式":
+            self.subtitle_only.set()
+            self.mode_seg.configure(selected_color=theme.ACCENT_2,
+                                    selected_hover_color=theme.ACCENT_2)
+            logger.info("🔄 切換至字幕模式")
+        else:
+            self.subtitle_only.clear()
+            self.mode_seg.configure(selected_color=theme.ACCENT,
+                                    selected_hover_color=theme.ACCENT)
+            logger.info("🔄 切換至翻譯模式")
+
+    # ── 設定視窗 ───────────────────────────────────────────
+    def _open_settings(self):
+        if self._settings_win is not None and self._settings_win.winfo_exists():
+            self._settings_win.focus()
+            return
+        from settings_window import SettingsWindow   # 延遲載入，加快啟動
+        self._settings_win = SettingsWindow(
+            self.root,
+            on_apply=self._on_settings_applied,
+        )
+
+    def _on_settings_applied(self, needs_restart: bool):
+        self.apply_appearance()
+        if needs_restart:
+            ok, err = self.pipeline.restart()
+            if ok:
+                self.show_system_message("✅ 設定已套用，管線已重新啟動")
+            else:
+                self.show_system_message(f"❌ {err}")
+
+    # ── 拖曳 ───────────────────────────────────────────────
     def _start_drag(self, event):
-        self._drag_x = event.x
-        self._drag_y = event.y
+        self._drag_x = event.x_root - self.root.winfo_x()
+        self._drag_y = event.y_root - self.root.winfo_y()
 
     def _do_drag(self, event):
-        x = self.root.winfo_x() + (event.x - self._drag_x)
-        y = self.root.winfo_y() + (event.y - self._drag_y)
-        self.root.geometry(f"+{x}+{y}")
+        self.root.geometry(
+            f"+{event.x_root - self._drag_x}+{event.y_root - self._drag_y}")
 
+    # ── 字幕內容 ───────────────────────────────────────────
     def _clear(self):
         self.text_widget.config(state=tk.NORMAL)
         self.text_widget.delete("1.0", tk.END)
         self.text_widget.config(state=tk.DISABLED)
+
+    def show_system_message(self, message: str):
+        """在字幕區顯示系統訊息（錯誤 / 提示）。"""
+        self.text_widget.config(state=tk.NORMAL)
+        self._new_entry_prefix()
+        self.text_widget.insert(tk.END, message, "system")
+        self.text_widget.config(state=tk.DISABLED)
+        self.text_widget.see(tk.END)
 
     def _new_entry_prefix(self):
         """若文字框已有內容，先插入分隔換行。"""
@@ -196,7 +326,7 @@ class SubtitleWindow:
             self.text_widget.insert(tk.END, "\n", "separator")
 
     def _append_result(self, result: dict):
-        """字幕模式：一次顯示完整一筆（日文，或日文+翻譯）。"""
+        """一次顯示完整一筆（日文，或日文+翻譯）。"""
         now = datetime.now().strftime("%H:%M:%S")
         self.text_widget.config(state=tk.NORMAL)
         self._new_entry_prefix()
@@ -286,37 +416,30 @@ def main():
     logger.info("🚀 YouTube 日文直播翻譯器 啟動")
     logger.info("=" * 50)
 
+    # ── 首次啟動精靈 ──
+    if config.is_first_run():
+        from wizard import run_wizard
+        if not run_wizard():
+            logger.info("使用者取消精靈，程式結束")
+            return
+
     subtitle_only = threading.Event()   # 未設定 = 翻譯模式
+    result_queue = queue.Queue()
 
-    # ── 三條獨立 Queue，各司其職 ──
-    audio_queue    = queue.Queue(maxsize=config.AUDIO_QUEUE_MAXSIZE)
-    text_queue     = queue.Queue()        # Transcriber → Router
-    translate_queue = queue.Queue()       # Router → Translator（翻譯模式專用）
-    result_queue   = queue.Queue()        # → SubtitleWindow
+    pipeline = Pipeline(result_queue, subtitle_only)
+    window = SubtitleWindow(result_queue, subtitle_only, pipeline)
 
-    capture     = AudioCapture(audio_queue)
-    transcriber = Transcriber(audio_queue, text_queue)
-    translator  = Translator(translate_queue, result_queue)   # 讀 translate_queue
-    router      = Router(text_queue, translate_queue, result_queue, subtitle_only)
-
-    capture.start()
-    transcriber.start()
-    translator.start()
-    router.start()
-
-    logger.info("✅ 所有模組已啟動")
+    ok, err = pipeline.start()
+    if not ok:
+        window.show_system_message(f"❌ {err}")
 
     try:
-        window = SubtitleWindow(result_queue, subtitle_only)
         window.run()
     except KeyboardInterrupt:
         pass
     finally:
         logger.info("🛑 正在關閉...")
-        capture.stop()
-        transcriber.stop()
-        translator.stop()
-        router.stop()
+        pipeline.stop()
         logger.info("👋 程式結束")
 
 
