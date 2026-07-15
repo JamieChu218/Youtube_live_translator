@@ -55,7 +55,13 @@ DEFAULTS = {
     "MAX_LINES": 6,
     "WINDOW_WIDTH": 900,
     "WINDOW_HEIGHT": 300,
+    "WINDOW_X": None,          # None = 使用預設位置;關閉視窗時自動記錄
+    "WINDOW_Y": None,
+    "CLICK_THROUGH": False,    # 點擊穿透模式(滑鼠穿過字幕視窗)
     "POLL_INTERVAL_MS": 60,
+
+    # 術語對照表:一行一組「原文=譯文」,# 開頭為註解;空白時對翻譯零影響
+    "GLOSSARY": "",
 
     # UI 填入的 API key（僅當環境變數與 .env 都沒有時使用）
     "API_KEY": "",

@@ -6,6 +6,8 @@
 # ============================================================
 
 import queue
+import time
+import ctypes
 import logging
 import threading
 import tkinter as tk
@@ -19,6 +21,15 @@ from pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
+# ── Win32 點擊穿透 ────────────────────────────────────────
+GWL_EXSTYLE       = -20
+WS_EX_LAYERED     = 0x00080000
+WS_EX_TRANSPARENT = 0x00000020
+VK_CONTROL        = 0x11
+VK_MENU           = 0x12   # Alt
+
+NO_AUDIO_WARN_SECONDS = 30   # 超過此秒數無聲 → 提醒檢查路由
+
 
 class SubtitleWindow:
     def __init__(self, result_queue: queue.Queue,
@@ -28,15 +39,26 @@ class SubtitleWindow:
         self.subtitle_only = subtitle_only
         self.pipeline      = pipeline
         self._settings_win = None
+        self._paused          = False
+        self._click_through   = bool(config.CLICK_THROUGH)
+        self._escape_held     = False   # 按住 Ctrl+Alt 暫時解除穿透中
+        self._no_audio_warned = False
 
         theme.apply()
         self.root = ctk.CTk(fg_color=theme.BG)
         self.root.title("🎌 日文直播翻譯")
-        self.root.geometry(
-            f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}+100+800")
+
+        # 記住的視窗位置(夾回螢幕範圍,避免螢幕配置改變後跑到畫面外)
+        x = config.WINDOW_X if config.WINDOW_X is not None else 100
+        y = config.WINDOW_Y if config.WINDOW_Y is not None else 800
+        x = max(0, min(int(x), self.root.winfo_screenwidth()  - 200))
+        y = max(0, min(int(y), self.root.winfo_screenheight() - 100))
+        self.root.geometry(f"{config.WINDOW_WIDTH}x{config.WINDOW_HEIGHT}+{x}+{y}")
+
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", config.WINDOW_OPACITY)
         self.root.resizable(True, True)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # ── 工具列 ──
         toolbar = ctk.CTkFrame(self.root, fg_color=theme.PANEL, corner_radius=0)
@@ -63,7 +85,24 @@ class SubtitleWindow:
         self.mode_seg.set("翻譯模式")
         self.mode_seg.pack(side="left", padx=8, pady=6)
 
-        # 右側：⚙ 設定、清除、狀態
+        self.pause_btn = ctk.CTkButton(
+            toolbar, text="⏸", width=34, height=28,
+            font=(theme.FONT_FAMILY, 14),
+            fg_color=theme.PANEL_2, hover_color=theme.BORDER,
+            command=self._toggle_pause,
+        )
+        self.pause_btn.pack(side="left", padx=4, pady=6)
+
+        self.ct_btn = ctk.CTkButton(
+            toolbar, text="🖱穿透", width=60, height=28,
+            font=(theme.FONT_FAMILY, 12),
+            fg_color=theme.ACCENT if self._click_through else theme.PANEL_2,
+            hover_color=theme.BORDER,
+            command=self._toggle_click_through,
+        )
+        self.ct_btn.pack(side="left", padx=4, pady=6)
+
+        # 右側：⚙ 設定、清除、狀態、音訊指示燈
         self.settings_btn = ctk.CTkButton(
             toolbar, text="⚙", width=34, height=28,
             font=(theme.FONT_FAMILY, 14),
@@ -79,6 +118,12 @@ class SubtitleWindow:
             command=self._clear,
         )
         clear_btn.pack(side="right", padx=4, pady=6)
+
+        self.audio_dot = ctk.CTkLabel(
+            toolbar, text="●", width=16,
+            text_color=theme.TEXT_DIM, font=(theme.FONT_FAMILY, 14),
+        )
+        self.audio_dot.pack(side="right", padx=(0, 4), pady=6)
 
         self.status_var = tk.StringVar(value="⏳ 等待音訊...")
         ctk.CTkLabel(
@@ -112,6 +157,125 @@ class SubtitleWindow:
             w.bind("<B1-Motion>",     self._do_drag)
 
         self._poll_results()
+        self._poll_audio_status()
+        self._poll_modifier_escape()
+        # HWND 要等視窗實際建立後才拿得到,延遲套用穿透狀態
+        if self._click_through:
+            self.root.after(300, self._apply_click_through)
+
+    # ── 點擊穿透 ───────────────────────────────────────────
+    def _hwnd(self):
+        return ctypes.windll.user32.GetParent(self.root.winfo_id())
+
+    def _set_click_through(self, enabled: bool):
+        """對視窗設定/解除 WS_EX_TRANSPARENT(滑鼠事件穿過視窗)。"""
+        try:
+            hwnd = self._hwnd()
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            if enabled:
+                style |= WS_EX_LAYERED | WS_EX_TRANSPARENT
+            else:
+                style &= ~WS_EX_TRANSPARENT
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+        except Exception:
+            logger.exception("設定點擊穿透失敗")
+
+    def _apply_click_through(self):
+        self._set_click_through(self._click_through and not self._escape_held)
+        self.ct_btn.configure(
+            fg_color=theme.ACCENT if self._click_through else theme.PANEL_2)
+
+    def _toggle_click_through(self):
+        self._click_through = not self._click_through
+        config.save({"CLICK_THROUGH": self._click_through})
+        self._apply_click_through()
+        if self._click_through:
+            self.show_system_message(
+                "🖱 點擊穿透已開啟:滑鼠會穿過字幕視窗。"
+                "按住 Ctrl+Alt 可暫時操作視窗(拖曳/按按鈕)。")
+            logger.info("🖱 點擊穿透開啟")
+        else:
+            logger.info("🖱 點擊穿透關閉")
+
+    def _poll_modifier_escape(self):
+        """穿透開啟時:按住 Ctrl+Alt 暫時解除,放開恢復。"""
+        try:
+            if self._click_through:
+                held = bool(ctypes.windll.user32.GetAsyncKeyState(VK_CONTROL) & 0x8000) \
+                   and bool(ctypes.windll.user32.GetAsyncKeyState(VK_MENU) & 0x8000)
+                if held != self._escape_held:
+                    self._escape_held = held
+                    self._set_click_through(not held)
+        finally:
+            self.root.after(200, self._poll_modifier_escape)
+
+    # ── 暫停/繼續 ──────────────────────────────────────────
+    def _toggle_pause(self):
+        if self._paused:
+            ok, err = self.pipeline.start()
+            if ok:
+                self._paused = False
+                self.pause_btn.configure(text="⏸", fg_color=theme.PANEL_2)
+                self.status_var.set("▶ 已繼續")
+                logger.info("▶ 使用者繼續辨識")
+            else:
+                self.show_system_message(f"❌ {err}")
+        else:
+            self._paused = True
+            self.pause_btn.configure(text="▶", fg_color=theme.WARN,
+                                     state="disabled")
+            self.status_var.set("⏸ 暫停中...")
+            logger.info("⏸ 使用者暫停辨識")
+
+            def worker():   # stop 會 join 執行緒,放背景避免卡 UI
+                self.pipeline.stop()
+                self.root.after(0, lambda: (
+                    self.pause_btn.configure(state="normal"),
+                    self.status_var.set("⏸ 已暫停(不計費)"),
+                ))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+    # ── 音訊狀態指示 ───────────────────────────────────────
+    def _poll_audio_status(self):
+        try:
+            status = None
+            if not self._paused and self.pipeline.running:
+                status = self.pipeline.audio_status()
+
+            if status is None:
+                self.audio_dot.configure(text_color=theme.TEXT_DIM)
+            else:
+                rms, last_audio = status
+                silent_for = time.monotonic() - last_audio
+                if silent_for >= NO_AUDIO_WARN_SECONDS:
+                    self.audio_dot.configure(text_color=theme.DANGER)
+                    if not self._no_audio_warned:
+                        self._no_audio_warned = True
+                        self.show_system_message(
+                            f"⚠ 已 {NO_AUDIO_WARN_SECONDS} 秒未收到音訊。"
+                            "請確認聲音有輸出到「CABLE Input」"
+                            "(Windows 音量混合器 → 播放程式的輸出裝置)。")
+                elif rms >= config.SILENCE_THRESHOLD:
+                    self.audio_dot.configure(text_color=theme.GOOD)
+                    self._no_audio_warned = False
+                else:
+                    self.audio_dot.configure(text_color=theme.TEXT_DIM)
+        finally:
+            self.root.after(500, self._poll_audio_status)
+
+    # ── 關閉:記住視窗位置 ──────────────────────────────────
+    def _on_close(self):
+        try:
+            config.save({
+                "WINDOW_X":      self.root.winfo_x(),
+                "WINDOW_Y":      self.root.winfo_y(),
+                "WINDOW_WIDTH":  self.root.winfo_width(),
+                "WINDOW_HEIGHT": self.root.winfo_height(),
+            })
+        except Exception:
+            logger.exception("儲存視窗位置失敗")
+        self.root.destroy()
 
     # ── 外觀 ───────────────────────────────────────────────
     def _config_tags(self):
@@ -156,6 +320,10 @@ class SubtitleWindow:
     def _on_settings_applied(self, needs_restart: bool):
         self.apply_appearance()
         if needs_restart:
+            if self._paused:
+                # 暫停中不啟動管線;新設定會在按 ▶ 繼續時生效
+                self.show_system_message("✅ 設定已儲存，將在繼續辨識時生效")
+                return
             ok, err = self.pipeline.restart()
             if ok:
                 self.show_system_message("✅ 設定已套用，管線已重新啟動")

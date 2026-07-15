@@ -6,6 +6,7 @@ import sounddevice as sd
 import numpy as np
 import threading
 import queue
+import time
 import logging
 
 import config
@@ -58,6 +59,10 @@ class AudioCapture:
 
         self.chunk_frames = int(config.SAMPLE_RATE * config.CHUNK_SECONDS)
 
+        # 供 UI 顯示音訊狀態（callback 單純覆寫 float/時戳，不需鎖）
+        self.current_rms = 0.0
+        self.last_audio_time = time.monotonic()
+
     def _enqueue(self, chunk_bytes: bytes):
         """
         非阻塞放入 audio_queue：絕對不能在音訊 callback 裡 block（會造成爆音/掉字）。
@@ -98,9 +103,11 @@ class AudioCapture:
 
                 chunk_bytes = self._to_int16_bytes(blocks)
                 rms = np.sqrt(np.mean(np.frombuffer(chunk_bytes, np.int16).astype(np.float32) ** 2))
+                self.current_rms = float(rms)
                 if rms < config.SILENCE_THRESHOLD:
                     logger.debug(f"靜音跳過 (RMS={rms:.1f})")
                     return
+                self.last_audio_time = time.monotonic()
                 self._enqueue(chunk_bytes)
 
         return callback
@@ -136,6 +143,10 @@ class AudioCapture:
             mono = block[:, 0] if block.ndim > 1 else block
             rms = np.sqrt(np.mean((mono * 32767).astype(np.float32) ** 2))
             is_speech = rms >= config.SILENCE_THRESHOLD
+
+            self.current_rms = float(rms)
+            if is_speech:
+                self.last_audio_time = time.monotonic()
 
             if is_speech:
                 state["blocks"].append(block)

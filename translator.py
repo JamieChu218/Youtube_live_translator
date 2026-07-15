@@ -11,6 +11,24 @@ import config
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_glossary(text: str):
+    """
+    解析術語對照表：一行一組「原文=譯文」，# 開頭為註解。
+    寬鬆容錯：空行、無 = 的行、缺原文或譯文的行一律忽略。
+    """
+    pairs = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        src, dst = line.split("=", 1)
+        src, dst = src.strip(), dst.strip()
+        if src and dst:
+            pairs.append((src, dst))
+    return pairs
+
+
 class Translator:
     """
     從 text_queue 取出日文文字，
@@ -34,6 +52,13 @@ class Translator:
 3. 遊戲術語、人名、角色名稱可保留原文並加括號標示
 4. 只輸出翻譯結果，不要加任何解釋或前綴
 5. 若輸入不是{config.SOURCE_LANG}或無法翻譯，回傳空字串"""
+
+        # 術語對照表（清單空白時不附加，對翻譯零影響）
+        pairs = _parse_glossary(getattr(config, "GLOSSARY", ""))
+        if pairs:
+            terms = "\n".join(f"- {src} → {dst}" for src, dst in pairs)
+            self.system_prompt += f"\n\n以下專有名詞請一律使用指定譯法：\n{terms}"
+            logger.info(f"📖 已載入 {len(pairs)} 組術語對照")
 
     def _translate_loop(self):
         logger.info("🌐 翻譯器啟動")

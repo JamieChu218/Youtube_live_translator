@@ -122,3 +122,10 @@ class Pipeline:
         """以目前 config 重建整條管線。回傳 (成功與否, 錯誤訊息)。"""
         self.stop()
         return self.start()
+
+    def audio_status(self):
+        """回傳 (目前 RMS, 最後偵測到聲音的時間)；管線未啟動時回傳 None。"""
+        for m in self._modules:
+            if isinstance(m, AudioCapture):
+                return m.current_rms, m.last_audio_time
+        return None

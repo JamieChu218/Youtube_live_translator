@@ -22,7 +22,7 @@ RESTART_KEYS = {
     "CHUNK_SECONDS", "SILENCE_THRESHOLD",
     "USE_DYNAMIC_SEGMENTATION", "PAUSE_SECONDS", "MIN_SPEECH_SECONDS",
     "STT_MODEL", "STT_WORKERS", "GPT_MODEL",
-    "SOURCE_LANG", "TARGET_LANG",
+    "SOURCE_LANG", "TARGET_LANG", "GLOSSARY",
 }
 
 STT_MODEL_OPTIONS = ["gpt-4o-mini-transcribe", "whisper-1"]
@@ -249,6 +249,17 @@ class SettingsWindow(ctk.CTkToplevel):
         self.tgt_entry.pack(side="left", padx=6)
         self.tgt_entry.insert(0, config.TARGET_LANG)
 
+        # 術語對照表
+        self._label(tab, "術語對照表（人名/術語固定譯法）")
+        self.glossary_box = ctk.CTkTextbox(
+            tab, height=100, font=(theme.FONT_FAMILY, 12),
+            fg_color=theme.PANEL_2, border_color=theme.BORDER, border_width=1)
+        self.glossary_box.pack(fill="x", padx=12, pady=(4, 0))
+        if config.GLOSSARY:
+            self.glossary_box.insert("1.0", config.GLOSSARY)
+        self._hint(tab, "一行一組「原文=譯文」，# 開頭為註解。例：ぺこら=佩可拉。"
+                        "清單空白時對翻譯零影響。")
+
     # ── 斷句 ───────────────────────────────────────────────
 
     def _build_segment(self, tab):
@@ -298,6 +309,7 @@ class SettingsWindow(ctk.CTkToplevel):
             "GPT_MODEL": self.gpt_menu.get(),
             "SOURCE_LANG": self.src_entry.get().strip() or "日文",
             "TARGET_LANG": self.tgt_entry.get().strip() or "繁體中文",
+            "GLOSSARY": self.glossary_box.get("1.0", "end").strip(),
             "USE_DYNAMIC_SEGMENTATION": bool(self.dyn_switch.get()),
             "PAUSE_SECONDS": round(self.get_pause(), 2),
             "MIN_SPEECH_SECONDS": round(self.get_min_speech(), 2),
