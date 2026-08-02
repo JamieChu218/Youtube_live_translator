@@ -27,6 +27,9 @@ os.makedirs(APP_DIR, exist_ok=True)
 
 # ── 內建預設值 ────────────────────────────────────────────
 DEFAULTS = {
+    # 介面語言（zh-TW / zh-CN / en / ja）──與翻譯目標語言無關
+    "UI_LANGUAGE": "zh-TW",
+
     # 音訊擷取
     "CABLE_DEVICE_INDEX": None,   # None = 自動偵測含 "CABLE" 的裝置
     "SAMPLE_RATE": 16000,         # Whisper 建議 16 kHz
@@ -114,6 +117,10 @@ def load():
     for key, default in DEFAULTS.items():
         g[key] = data.get(key, default)
     g["OPENAI_API_KEY"] = _resolve_api_key()
+
+    # 同步介面語言（延遲匯入避免循環相依）
+    import i18n
+    i18n.set_language(g["UI_LANGUAGE"])
 
 
 def save(updates: dict):

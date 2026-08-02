@@ -5,6 +5,8 @@
 import logging
 import threading
 
+from i18n import t
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +16,7 @@ def device_choices():
     第一項固定為「自動偵測」。顯示文字含索引前綴，保證唯一。
     """
     import sounddevice as sd
-    choices = [("自動偵測（含 CABLE 的裝置）", None)]
+    choices = [(t("device.auto"), None)]
     try:
         for i, dev in enumerate(sd.query_devices()):
             if dev["max_input_channels"] > 0:
@@ -39,17 +41,17 @@ def test_api_key(key: str, timeout: float = 10):
     """
     key = (key or "").strip()
     if not key:
-        return False, "請先輸入 API Key"
+        return False, t("api.empty")
     try:
         from openai import OpenAI
         client = OpenAI(api_key=key, timeout=timeout)
         client.models.list()
-        return True, "✅ 連線成功"
+        return True, t("api.ok")
     except Exception as e:
         msg = str(e)
         if "401" in msg or "invalid_api_key" in msg.lower() or "incorrect api key" in msg.lower():
-            return False, "❌ API Key 無效"
-        return False, f"❌ 連線失敗：{msg[:80]}"
+            return False, t("api.invalid")
+        return False, t("api.failed", msg=msg[:80])
 
 
 def test_api_key_async(key: str, tk_widget, callback):

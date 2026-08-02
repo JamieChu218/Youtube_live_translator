@@ -12,6 +12,8 @@ import customtkinter as ctk
 
 import config
 import theme
+import i18n
+from i18n import t
 from ui_common import device_choices, test_api_key_async
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ class SettingsWindow(ctk.CTkToplevel):
         super().__init__(master, fg_color=theme.BG)
         self.on_apply = on_apply
 
-        self.title("⚙ 設定")
+        self.title(t("settings.title"))
         self.geometry("600x560")
         self.attributes("-topmost", True)
         self.resizable(False, False)
@@ -46,10 +48,10 @@ class SettingsWindow(ctk.CTkToplevel):
             segmented_button_selected_color=theme.ACCENT,
         )
         tabs.pack(fill="both", expand=True, padx=12, pady=(12, 4))
-        tab_general    = tabs.add("一般")
-        tab_engine     = tabs.add("辨識與翻譯")
-        tab_segment    = tabs.add("斷句")
-        tab_appearance = tabs.add("外觀")
+        tab_general    = tabs.add(t("settings.tab.general"))
+        tab_engine     = tabs.add(t("settings.tab.engine"))
+        tab_segment    = tabs.add(t("settings.tab.segment"))
+        tab_appearance = tabs.add(t("settings.tab.appearance"))
 
         self._build_general(tab_general)
         self._build_engine(tab_engine)
@@ -60,12 +62,12 @@ class SettingsWindow(ctk.CTkToplevel):
         btn_row = ctk.CTkFrame(self, fg_color="transparent")
         btn_row.pack(fill="x", padx=12, pady=(4, 12))
         ctk.CTkButton(
-            btn_row, text="儲存並套用", width=120,
+            btn_row, text=t("settings.save"), width=120,
             font=(theme.FONT_FAMILY, 13),
             fg_color=theme.ACCENT, command=self._save,
         ).pack(side="right", padx=(6, 0))
         ctk.CTkButton(
-            btn_row, text="取消", width=80,
+            btn_row, text=t("settings.cancel"), width=80,
             font=(theme.FONT_FAMILY, 13),
             fg_color=theme.PANEL_2, hover_color=theme.BORDER,
             command=self.destroy,
@@ -142,11 +144,22 @@ class SettingsWindow(ctk.CTkToplevel):
     # ── 一般 ───────────────────────────────────────────────
 
     def _build_general(self, tab):
+        # 介面語言
+        self._label(tab, t("settings.ui_language"))
+        self._lang_names = list(i18n.LANGUAGES.values())      # 顯示名 → 代碼
+        self._lang_codes = {v: k for k, v in i18n.LANGUAGES.items()}
+        self.lang_menu = ctk.CTkOptionMenu(
+            tab, values=self._lang_names, font=(theme.FONT_FAMILY, 12),
+            fg_color=theme.PANEL_2, button_color=theme.ACCENT)
+        self.lang_menu.pack(fill="x", padx=12, pady=(4, 0))
+        self.lang_menu.set(i18n.LANGUAGES.get(config.UI_LANGUAGE,
+                                              i18n.LANGUAGES[i18n.DEFAULT_LANG]))
+        self._hint(tab, t("settings.ui_language.hint"))
+
         # API Key
-        self._label(tab, "OpenAI API Key")
+        self._label(tab, t("settings.api_key"))
         if config.api_key_from_env():
-            self._hint(tab, "已從環境變數 / .env 讀取 API Key（優先於此處設定）。"
-                            "如需更換請修改環境變數，或先移除後再於此填入。")
+            self._hint(tab, t("settings.api_key.env_hint"))
         self.api_entry = ctk.CTkEntry(
             tab, show="•", font=("Consolas", 12),
             placeholder_text="sk-...",
@@ -163,11 +176,11 @@ class SettingsWindow(ctk.CTkToplevel):
             self._show_key = not self._show_key
             self.api_entry.configure(show="" if self._show_key else "•")
 
-        ctk.CTkButton(key_row, text="顯示/隱藏", width=80, height=26,
+        ctk.CTkButton(key_row, text=t("settings.toggle_show"), width=80, height=26,
                       font=(theme.FONT_FAMILY, 12),
                       fg_color=theme.PANEL_2, hover_color=theme.BORDER,
                       command=toggle_show).pack(side="left")
-        ctk.CTkButton(key_row, text="測試連線", width=80, height=26,
+        ctk.CTkButton(key_row, text=t("settings.test_conn"), width=80, height=26,
                       font=(theme.FONT_FAMILY, 12),
                       fg_color=theme.PANEL_2, hover_color=theme.BORDER,
                       command=self._test_key).pack(side="left", padx=6)
@@ -177,12 +190,12 @@ class SettingsWindow(ctk.CTkToplevel):
         self.key_status.pack(side="left", padx=6)
 
         # 音訊裝置
-        self._label(tab, "音訊輸入裝置")
-        self._hint(tab, "選擇 VB-CABLE 的 CABLE Output；「自動偵測」會尋找名稱含 CABLE 的裝置。")
+        self._label(tab, t("settings.device"))
+        self._hint(tab, t("settings.device.hint"))
         dev_row = ctk.CTkFrame(tab, fg_color="transparent")
         dev_row.pack(fill="x", padx=12, pady=(4, 0))
         self.device_menu = ctk.CTkOptionMenu(
-            dev_row, values=["載入中..."], width=420,
+            dev_row, values=[t("settings.loading")], width=420,
             font=(theme.FONT_FAMILY, 12),
             fg_color=theme.PANEL_2, button_color=theme.ACCENT,
         )
@@ -208,7 +221,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
     def _test_key(self):
         key = self.api_entry.get().strip() or (config.OPENAI_API_KEY or "")
-        self.key_status.configure(text="測試中...", text_color=theme.TEXT_DIM)
+        self.key_status.configure(text=t("settings.testing"), text_color=theme.TEXT_DIM)
 
         def done(ok, msg):
             self.key_status.configure(
@@ -219,19 +232,19 @@ class SettingsWindow(ctk.CTkToplevel):
     # ── 辨識與翻譯 ─────────────────────────────────────────
 
     def _build_engine(self, tab):
-        self._label(tab, "語音辨識模型")
+        self._label(tab, t("settings.stt_model"))
         self.stt_menu = ctk.CTkOptionMenu(
             tab, values=STT_MODEL_OPTIONS, font=("Consolas", 12),
             fg_color=theme.PANEL_2, button_color=theme.ACCENT)
         self.stt_menu.pack(fill="x", padx=12, pady=(4, 0))
         self.stt_menu.set(config.STT_MODEL)
-        self._hint(tab, "gpt-4o-mini-transcribe 延遲較低；帳號無權限時可改回 whisper-1。")
+        self._hint(tab, t("settings.stt_model.hint"))
 
-        self.get_workers = self._slider(tab, "並行辨識 worker 數", 1, 5, 4,
+        self.get_workers = self._slider(tab, t("settings.workers"), 1, 5, 4,
                                         config.STT_WORKERS, "{:.0f}")
-        self._hint(tab, "連續快速說話時清空積壓更快；調小可省 API 用量。")
+        self._hint(tab, t("settings.workers.hint"))
 
-        self._label(tab, "翻譯模型")
+        self._label(tab, t("settings.gpt_model"))
         self.gpt_menu = ctk.CTkOptionMenu(
             tab, values=GPT_MODEL_OPTIONS, font=("Consolas", 12),
             fg_color=theme.PANEL_2, button_color=theme.ACCENT)
@@ -240,68 +253,69 @@ class SettingsWindow(ctk.CTkToplevel):
 
         lang_row = ctk.CTkFrame(tab, fg_color="transparent")
         lang_row.pack(fill="x", padx=12, pady=(12, 0))
-        ctk.CTkLabel(lang_row, text="來源語言", font=(theme.FONT_FAMILY, 13)).pack(side="left")
+        ctk.CTkLabel(lang_row, text=t("settings.source_lang"), font=(theme.FONT_FAMILY, 13)).pack(side="left")
         self.src_entry = ctk.CTkEntry(lang_row, width=110, font=(theme.FONT_FAMILY, 12))
         self.src_entry.pack(side="left", padx=(6, 16))
         self.src_entry.insert(0, config.SOURCE_LANG)
-        ctk.CTkLabel(lang_row, text="目標語言", font=(theme.FONT_FAMILY, 13)).pack(side="left")
+        ctk.CTkLabel(lang_row, text=t("settings.target_lang"), font=(theme.FONT_FAMILY, 13)).pack(side="left")
         self.tgt_entry = ctk.CTkEntry(lang_row, width=110, font=(theme.FONT_FAMILY, 12))
         self.tgt_entry.pack(side="left", padx=6)
         self.tgt_entry.insert(0, config.TARGET_LANG)
 
         # 術語對照表
-        self._label(tab, "術語對照表（人名/術語固定譯法）")
+        self._label(tab, t("settings.glossary"))
         self.glossary_box = ctk.CTkTextbox(
             tab, height=100, font=(theme.FONT_FAMILY, 12),
             fg_color=theme.PANEL_2, border_color=theme.BORDER, border_width=1)
         self.glossary_box.pack(fill="x", padx=12, pady=(4, 0))
         if config.GLOSSARY:
             self.glossary_box.insert("1.0", config.GLOSSARY)
-        self._hint(tab, "一行一組「原文=譯文」，# 開頭為註解。例：ぺこら=佩可拉。"
-                        "清單空白時對翻譯零影響。")
+        self._hint(tab, t("settings.glossary.hint"))
 
     # ── 斷句 ───────────────────────────────────────────────
 
     def _build_segment(self, tab):
         row = ctk.CTkFrame(tab, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(10, 0))
-        ctk.CTkLabel(row, text="動態斷句（VAD）",
+        ctk.CTkLabel(row, text=t("settings.dynamic_seg"),
                      font=(theme.FONT_FAMILY, 13)).pack(side="left")
         self.dyn_switch = ctk.CTkSwitch(row, text="", progress_color=theme.ACCENT)
         self.dyn_switch.pack(side="right")
         if config.USE_DYNAMIC_SEGMENTATION:
             self.dyn_switch.select()
-        self._hint(tab, "偵測到停頓就立刻送出辨識；關閉則固定每「斷句上限」秒切一塊。")
+        self._hint(tab, t("settings.dynamic_seg.hint"))
 
-        self.get_pause = self._slider(tab, "停頓斷句門檻（秒）", 0.3, 1.5, 24,
+        self.get_pause = self._slider(tab, t("settings.pause_sec"), 0.3, 1.5, 24,
                                       config.PAUSE_SECONDS, "{:.2f}")
-        self._hint(tab, "調大→句子更完整但延遲略增；調小→更即時但可能切碎。")
+        self._hint(tab, t("settings.pause_sec.hint"))
 
-        self.get_min_speech = self._slider(tab, "最短語音長度（秒）", 0.2, 2.0, 18,
+        self.get_min_speech = self._slider(tab, t("settings.min_speech"), 0.2, 2.0, 18,
                                            config.MIN_SPEECH_SECONDS, "{:.2f}")
-        self._hint(tab, "過短的聲音片段不送辨識；調小可保留短應答（如「うん」）。")
+        self._hint(tab, t("settings.min_speech.hint"))
 
-        self.get_chunk = self._slider(tab, "斷句上限（秒）", 3, 8, 5,
+        self.get_chunk = self._slider(tab, t("settings.chunk_sec"), 3, 8, 5,
                                       config.CHUNK_SECONDS, "{:.0f}")
-        self.get_silence = self._slider(tab, "靜音門檻（音量）", 50, 1000, 19,
+        self.get_silence = self._slider(tab, t("settings.silence"), 50, 1000, 19,
                                         config.SILENCE_THRESHOLD, "{:.0f}")
-        self._hint(tab, "低於此音量視為靜音；環境雜訊大時調高。")
+        self._hint(tab, t("settings.silence.hint"))
 
     # ── 外觀 ───────────────────────────────────────────────
 
     def _build_appearance(self, tab):
-        self.get_opacity = self._slider(tab, "視窗透明度", 0.3, 1.0, 14,
+        self.get_opacity = self._slider(tab, t("settings.opacity"), 0.3, 1.0, 14,
                                         config.WINDOW_OPACITY, "{:.2f}")
-        self.get_font = self._slider(tab, "字級", 12, 32, 20,
+        self.get_font = self._slider(tab, t("settings.font_size"), 12, 32, 20,
                                      config.FONT_SIZE, "{:.0f}")
-        self.get_lines = self._slider(tab, "最多顯示筆數", 3, 15, 12,
+        self.get_lines = self._slider(tab, t("settings.max_lines"), 3, 15, 12,
                                       config.MAX_LINES, "{:.0f}")
-        self._hint(tab, "外觀變更立即生效，不需重啟管線。")
+        self._hint(tab, t("settings.appearance.hint"))
 
     # ── 儲存 ───────────────────────────────────────────────
 
     def _save(self):
         updates = {
+            "UI_LANGUAGE": self._lang_codes.get(self.lang_menu.get(),
+                                                i18n.DEFAULT_LANG),
             "API_KEY": self.api_entry.get().strip(),
             "CABLE_DEVICE_INDEX": self._device_map.get(self.device_menu.get()),
             "STT_MODEL": self.stt_menu.get(),
@@ -325,8 +339,9 @@ class SettingsWindow(ctk.CTkToplevel):
             key in RESTART_KEYS and getattr(config, key) != value
             for key, value in updates.items()
         )
+        lang_changed = updates["UI_LANGUAGE"] != config.UI_LANGUAGE
 
-        config.save(updates)
-        logger.info(f"設定已儲存（重啟管線：{needs_restart}）")
+        config.save(updates)   # 內部會同步 i18n.set_language()
+        logger.info(f"設定已儲存（重啟管線：{needs_restart}，語言變更：{lang_changed}）")
         self.destroy()
-        self.on_apply(needs_restart)
+        self.on_apply(needs_restart, lang_changed)

@@ -12,6 +12,8 @@ import customtkinter as ctk
 
 import config
 import theme
+import i18n
+from i18n import t
 from ui_common import device_choices, find_cable_display, test_api_key_async
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ VB_CABLE_URL = "https://vb-audio.com/Cable/"
 def run_wizard() -> bool:
     theme.apply()
     root = ctk.CTk(fg_color=theme.BG)
-    root.title("🎌 初次設定精靈")
+    root.title(t("wizard.title"))
 
     w, h = 640, 480
     x = (root.winfo_screenwidth() - w) // 2
@@ -34,6 +36,7 @@ def run_wizard() -> bool:
         "ok": False,
         "key_verified": config.api_key_from_env(),  # env/.env 已有 key 免驗證
         "step": 0,
+        "ui_language": i18n.get_language(),
     }
     device_map = {}
 
@@ -50,11 +53,11 @@ def run_wizard() -> bool:
 
     btn_row = ctk.CTkFrame(root, fg_color="transparent")
     btn_row.pack(fill="x", padx=28, pady=(0, 20))
-    back_btn = ctk.CTkButton(btn_row, text="上一步", width=90,
+    back_btn = ctk.CTkButton(btn_row, text=t("wizard.back"), width=90,
                              font=(theme.FONT_FAMILY, 13),
                              fg_color=theme.PANEL_2, hover_color=theme.BORDER)
     back_btn.pack(side="left")
-    next_btn = ctk.CTkButton(btn_row, text="下一步", width=110,
+    next_btn = ctk.CTkButton(btn_row, text=t("wizard.next"), width=110,
                              font=(theme.FONT_FAMILY, 13),
                              fg_color=theme.ACCENT)
     next_btn.pack(side="right")
@@ -65,11 +68,40 @@ def run_wizard() -> bool:
         for child in body.winfo_children():
             child.destroy()
 
-    # ── 步驟 1：歡迎 ──
+    # ── 步驟 1：介面語言 ──
+    def build_language():
+        _clear_body()
+        header.configure(text=t("wizard.lang.header"))
+        sub.configure(text=f'{t("wizard.step", n=1, total=4)}　─　{t("wizard.lang.sub")}')
+        ctk.CTkLabel(
+            body, justify="left", wraplength=520,
+            font=(theme.FONT_FAMILY, 13), text_color=theme.TEXT_MAIN,
+            text=t("wizard.lang.body"),
+        ).pack(anchor="w", padx=24, pady=(16, 12))
+
+        names = list(i18n.LANGUAGES.values())
+        codes = {v: k for k, v in i18n.LANGUAGES.items()}
+
+        def on_pick(display):
+            code = codes.get(display, i18n.DEFAULT_LANG)
+            state["ui_language"] = code
+            i18n.set_language(code)
+            build_language()          # 立即以新語言重繪本頁
+            _refresh_nav()
+
+        menu = ctk.CTkOptionMenu(
+            body, values=names, width=260, command=on_pick,
+            font=(theme.FONT_FAMILY, 13),
+            fg_color=theme.PANEL_2, button_color=theme.ACCENT)
+        menu.set(i18n.LANGUAGES.get(state.get("ui_language", i18n.get_language()),
+                                    i18n.LANGUAGES[i18n.DEFAULT_LANG]))
+        menu.pack(anchor="w", padx=24)
+
+    # ── 步驟 2：歡迎 ──
     def build_welcome():
         _clear_body()
-        header.configure(text="歡迎使用 日文直播即時翻譯")
-        sub.configure(text="步驟 1 / 3　─　開始之前")
+        header.configure(text=t("wizard.welcome.header"))
+        sub.configure(text=f'{t("wizard.step", n=2, total=4)}　─　{t("wizard.welcome.sub")}')
         ctk.CTkLabel(
             body, justify="left", wraplength=520,
             font=(theme.FONT_FAMILY, 13), text_color=theme.TEXT_MAIN,
@@ -83,7 +115,7 @@ def run_wizard() -> bool:
             ),
         ).pack(anchor="w", padx=24, pady=(8, 0))
 
-        link = ctk.CTkLabel(body, text="🔗 下載 VB-CABLE（vb-audio.com/Cable）",
+        link = ctk.CTkLabel(body, text=t("wizard.welcome.link"),
                             font=(theme.FONT_FAMILY, 13, "underline"),
                             text_color=theme.ACCENT, cursor="hand2")
         link.pack(anchor="w", padx=24, pady=(4, 0))
@@ -92,14 +124,14 @@ def run_wizard() -> bool:
     # ── 步驟 2：API Key ──
     def build_api_key():
         _clear_body()
-        header.configure(text="設定 OpenAI API Key")
-        sub.configure(text="步驟 2 / 3　─　連線驗證")
+        header.configure(text=t("wizard.key.header"))
+        sub.configure(text=f'{t("wizard.step", n=3, total=4)}　─　{t("wizard.key.sub")}')
 
         if config.api_key_from_env():
             ctk.CTkLabel(
                 body, justify="left", wraplength=520,
                 font=(theme.FONT_FAMILY, 13), text_color=theme.GOOD,
-                text="\n✅ 已偵測到環境變數 / .env 中的 API Key，此步驟可直接跳過。",
+                text=t("wizard.key.env"),
             ).pack(anchor="w", padx=24, pady=(16, 0))
             state["key_verified"] = True
             return
@@ -107,7 +139,7 @@ def run_wizard() -> bool:
         ctk.CTkLabel(
             body, justify="left", wraplength=520,
             font=(theme.FONT_FAMILY, 13), text_color=theme.TEXT_MAIN,
-            text="\n請貼上你的 OpenAI API Key（sk- 開頭），並按「測試連線」驗證：",
+            text=t("wizard.key.body"),
         ).pack(anchor="w", padx=24, pady=(8, 6))
 
         entry = ctk.CTkEntry(body, show="•", font=("Consolas", 12),
@@ -123,7 +155,7 @@ def run_wizard() -> bool:
 
         def do_test():
             key = entry.get().strip()
-            status.configure(text="測試中...", text_color=theme.TEXT_DIM)
+            status.configure(text=t("settings.testing"), text_color=theme.TEXT_DIM)
 
             def done(ok, msg):
                 status.configure(text=msg,
@@ -134,7 +166,7 @@ def run_wizard() -> bool:
 
             test_api_key_async(key, root, done)
 
-        ctk.CTkButton(row, text="測試連線", width=90, height=28,
+        ctk.CTkButton(row, text=t("settings.test_conn"), width=90, height=28,
                       font=(theme.FONT_FAMILY, 12),
                       fg_color=theme.ACCENT, command=do_test).pack(side="left")
         status.pack(side="left", padx=10)
@@ -142,19 +174,19 @@ def run_wizard() -> bool:
         ctk.CTkLabel(
             body, justify="left", wraplength=520,
             font=(theme.FONT_FAMILY, 11), text_color=theme.TEXT_DIM,
-            text="Key 會儲存在你電腦的使用者設定檔中，不會上傳到其他地方。",
+            text=t("wizard.key.note"),
         ).pack(anchor="w", padx=24, pady=(6, 0))
 
     # ── 步驟 3：音訊裝置 ──
     def build_device():
         _clear_body()
-        header.configure(text="選擇音訊輸入裝置")
-        sub.configure(text="步驟 3 / 3　─　最後一步")
+        header.configure(text=t("wizard.device.header"))
+        sub.configure(text=f'{t("wizard.step", n=4, total=4)}　─　{t("wizard.device.sub")}')
 
         ctk.CTkLabel(
             body, justify="left", wraplength=520,
             font=(theme.FONT_FAMILY, 13), text_color=theme.TEXT_MAIN,
-            text="\n選擇 VB-CABLE 的「CABLE Output」裝置（已自動偵測預選）：",
+            text=t("wizard.device.body"),
         ).pack(anchor="w", padx=24, pady=(8, 6))
 
         choices = device_choices()
@@ -175,31 +207,35 @@ def run_wizard() -> bool:
             ctk.CTkLabel(
                 body, justify="left", wraplength=520,
                 font=(theme.FONT_FAMILY, 12), text_color=theme.WARN,
-                text="⚠️ 未偵測到 CABLE 裝置。若尚未安裝 VB-CABLE，"
-                     "可先選「自動偵測」，安裝後重新啟動程式即可。",
+                text=t("wizard.device.warn"),
             ).pack(anchor="w", padx=24, pady=(8, 0))
 
         ctk.CTkLabel(
             body, justify="left", wraplength=520,
             font=(theme.FONT_FAMILY, 12), text_color=theme.TEXT_DIM,
-            text="提醒：這裡只是選擇程式要「聽」哪個裝置，不會更改系統音訊設定。\n"
-                 "要讓聲音進得來，請把播放來源的輸出設為「CABLE Input」——\n"
-                 "可在 Windows 音量混合器對單一程式（如瀏覽器）設定，"
-                 "或將系統預設輸出改為 CABLE Input。",
+            text=t("wizard.device.note"),
         ).pack(anchor="w", padx=24, pady=(10, 0))
 
-    steps.extend([build_welcome, build_api_key, build_device])
+    steps.extend([build_language, build_welcome, build_api_key, build_device])
 
     # ── 導覽 ──
+    def _refresh_nav():
+        """語言切換後更新視窗標題與導覽按鈕文字。"""
+        i = state["step"]
+        root.title(t("wizard.title"))
+        back_btn.configure(text=t("wizard.back"))
+        next_btn.configure(
+            text=t("wizard.finish") if i == len(steps) - 1 else t("wizard.next"))
+
     def show_step(i):
         state["step"] = i
         steps[i]()
         back_btn.configure(state="normal" if i > 0 else "disabled")
-        next_btn.configure(text="完成 ✓" if i == len(steps) - 1 else "下一步")
+        _refresh_nav()
 
     def on_next():
         i = state["step"]
-        if i == 1 and not state["key_verified"]:
+        if i == 2 and not state["key_verified"]:
             return  # API key 未驗證不能前進（按鈕提示已在畫面）
         if i < len(steps) - 1:
             show_step(i + 1)
@@ -211,7 +247,7 @@ def run_wizard() -> bool:
             show_step(state["step"] - 1)
 
     def finish():
-        updates = {}
+        updates = {"UI_LANGUAGE": state.get("ui_language", i18n.get_language())}
         if state.get("api_key"):
             updates["API_KEY"] = state["api_key"]
         menu = state.get("device_menu")

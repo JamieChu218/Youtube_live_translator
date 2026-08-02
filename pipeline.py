@@ -13,6 +13,7 @@ import logging
 import threading
 
 import config
+from i18n import t
 from audio_capture import AudioCapture
 from transcriber import Transcriber
 from translator import Translator
@@ -83,7 +84,7 @@ class Pipeline:
         if self.running:
             return True, None
         if not config.OPENAI_API_KEY:
-            return False, "尚未設定 OpenAI API Key，請開啟「⚙ 設定」填入。"
+            return False, t("err.no_api_key")
 
         try:
             audio_queue     = queue.Queue(maxsize=config.AUDIO_QUEUE_MAXSIZE)

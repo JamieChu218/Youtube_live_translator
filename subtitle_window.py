@@ -17,6 +17,7 @@ import customtkinter as ctk
 
 import config
 import theme
+from i18n import t
 from pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ class SubtitleWindow:
 
         theme.apply()
         self.root = ctk.CTk(fg_color=theme.BG)
-        self.root.title("🎌 日文直播翻譯")
+        self.root.title(t("app.title"))
 
         # 記住的視窗位置(夾回螢幕範圍,避免螢幕配置改變後跑到畫面外)
         x = config.WINDOW_X if config.WINDOW_X is not None else 100
@@ -64,8 +65,8 @@ class SubtitleWindow:
         toolbar = ctk.CTkFrame(self.root, fg_color=theme.PANEL, corner_radius=0)
         toolbar.pack(fill="x")
 
-        title_lbl = ctk.CTkLabel(
-            toolbar, text="🎌 日文直播即時翻譯",
+        self.title_lbl = title_lbl = ctk.CTkLabel(
+            toolbar, text=t("app.header"),
             text_color=theme.TEXT_DIM,
             font=(theme.FONT_FAMILY, 13),
         )
@@ -73,7 +74,7 @@ class SubtitleWindow:
 
         self.mode_seg = ctk.CTkSegmentedButton(
             toolbar,
-            values=["翻譯模式", "字幕模式"],
+            values=[t("mode.translate"), t("mode.subtitle")],
             command=self._on_mode_change,
             font=(theme.FONT_FAMILY, 12),
             selected_color=theme.ACCENT,
@@ -82,7 +83,7 @@ class SubtitleWindow:
             fg_color=theme.PANEL_2,
             height=28,
         )
-        self.mode_seg.set("翻譯模式")
+        self.mode_seg.set(t("mode.translate"))
         self.mode_seg.pack(side="left", padx=8, pady=6)
 
         self.pause_btn = ctk.CTkButton(
@@ -94,7 +95,7 @@ class SubtitleWindow:
         self.pause_btn.pack(side="left", padx=4, pady=6)
 
         self.ct_btn = ctk.CTkButton(
-            toolbar, text="🖱穿透", width=60, height=28,
+            toolbar, text=t("btn.passthrough"), width=60, height=28,
             font=(theme.FONT_FAMILY, 12),
             fg_color=theme.ACCENT if self._click_through else theme.PANEL_2,
             hover_color=theme.BORDER,
@@ -111,8 +112,8 @@ class SubtitleWindow:
         )
         self.settings_btn.pack(side="right", padx=(4, 12), pady=6)
 
-        clear_btn = ctk.CTkButton(
-            toolbar, text="清除", width=52, height=28,
+        self.clear_btn = clear_btn = ctk.CTkButton(
+            toolbar, text=t("btn.clear"), width=52, height=28,
             font=(theme.FONT_FAMILY, 12),
             fg_color=theme.PANEL_2, hover_color=theme.BORDER,
             command=self._clear,
@@ -125,7 +126,7 @@ class SubtitleWindow:
         )
         self.audio_dot.pack(side="right", padx=(0, 4), pady=6)
 
-        self.status_var = tk.StringVar(value="⏳ 等待音訊...")
+        self.status_var = tk.StringVar(value=t("status.waiting"))
         ctk.CTkLabel(
             toolbar, textvariable=self.status_var,
             text_color=theme.TEXT_DIM, font=(theme.FONT_FAMILY, 12),
@@ -190,9 +191,7 @@ class SubtitleWindow:
         config.save({"CLICK_THROUGH": self._click_through})
         self._apply_click_through()
         if self._click_through:
-            self.show_system_message(
-                "🖱 點擊穿透已開啟:滑鼠會穿過字幕視窗。"
-                "按住 Ctrl+Alt 可暫時操作視窗(拖曳/按按鈕)。")
+            self.show_system_message(t("msg.passthrough_on"))
             logger.info("🖱 點擊穿透開啟")
         else:
             logger.info("🖱 點擊穿透關閉")
@@ -216,7 +215,7 @@ class SubtitleWindow:
             if ok:
                 self._paused = False
                 self.pause_btn.configure(text="⏸", fg_color=theme.PANEL_2)
-                self.status_var.set("▶ 已繼續")
+                self.status_var.set(t("status.resumed"))
                 logger.info("▶ 使用者繼續辨識")
             else:
                 self.show_system_message(f"❌ {err}")
@@ -224,14 +223,14 @@ class SubtitleWindow:
             self._paused = True
             self.pause_btn.configure(text="▶", fg_color=theme.WARN,
                                      state="disabled")
-            self.status_var.set("⏸ 暫停中...")
+            self.status_var.set(t("status.pausing"))
             logger.info("⏸ 使用者暫停辨識")
 
             def worker():   # stop 會 join 執行緒,放背景避免卡 UI
                 self.pipeline.stop()
                 self.root.after(0, lambda: (
                     self.pause_btn.configure(state="normal"),
-                    self.status_var.set("⏸ 已暫停(不計費)"),
+                    self.status_var.set(t("status.paused")),
                 ))
 
             threading.Thread(target=worker, daemon=True).start()
@@ -253,9 +252,7 @@ class SubtitleWindow:
                     if not self._no_audio_warned:
                         self._no_audio_warned = True
                         self.show_system_message(
-                            f"⚠ 已 {NO_AUDIO_WARN_SECONDS} 秒未收到音訊。"
-                            "請確認聲音有輸出到「CABLE Input」"
-                            "(Windows 音量混合器 → 播放程式的輸出裝置)。")
+                            t("msg.no_audio", seconds=NO_AUDIO_WARN_SECONDS))
                 elif rms >= config.SILENCE_THRESHOLD:
                     self.audio_dot.configure(text_color=theme.GOOD)
                     self._no_audio_warned = False
@@ -293,9 +290,21 @@ class SubtitleWindow:
         self.root.attributes("-alpha", config.WINDOW_OPACITY)
         self._config_tags()
 
+    def apply_language(self):
+        """介面語言變更後即時更新所有可見文字（不需重啟程式）。"""
+        was_subtitle = self.subtitle_only.is_set()
+        self.root.title(t("app.title"))
+        self.title_lbl.configure(text=t("app.header"))
+        self.mode_seg.configure(values=[t("mode.translate"), t("mode.subtitle")])
+        self.mode_seg.set(t("mode.subtitle") if was_subtitle else t("mode.translate"))
+        self.ct_btn.configure(text=t("btn.passthrough"))
+        self.clear_btn.configure(text=t("btn.clear"))
+        self.status_var.set(t("status.paused") if self._paused
+                            else t("status.waiting"))
+
     # ── 模式切換 ───────────────────────────────────────────
     def _on_mode_change(self, value: str):
-        if value == "字幕模式":
+        if value == t("mode.subtitle"):
             self.subtitle_only.set()
             self.mode_seg.configure(selected_color=theme.ACCENT_2,
                                     selected_hover_color=theme.ACCENT_2)
@@ -317,16 +326,18 @@ class SubtitleWindow:
             on_apply=self._on_settings_applied,
         )
 
-    def _on_settings_applied(self, needs_restart: bool):
+    def _on_settings_applied(self, needs_restart: bool, lang_changed: bool = False):
         self.apply_appearance()
+        if lang_changed:
+            self.apply_language()
         if needs_restart:
             if self._paused:
                 # 暫停中不啟動管線;新設定會在按 ▶ 繼續時生效
-                self.show_system_message("✅ 設定已儲存，將在繼續辨識時生效")
+                self.show_system_message(t("msg.settings_saved_paused"))
                 return
             ok, err = self.pipeline.restart()
             if ok:
-                self.show_system_message("✅ 設定已套用，管線已重新啟動")
+                self.show_system_message(t("msg.settings_applied"))
             else:
                 self.show_system_message(f"❌ {err}")
 
@@ -422,7 +433,7 @@ class SubtitleWindow:
             while True:
                 msg = self.result_queue.get_nowait()
                 self._handle_msg(msg)
-                self.status_var.set(f"更新 {datetime.now().strftime('%H:%M:%S')}")
+                self.status_var.set(t("status.updated", time=datetime.now().strftime("%H:%M:%S")))
         except queue.Empty:
             pass
         finally:
