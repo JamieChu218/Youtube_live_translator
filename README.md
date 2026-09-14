@@ -179,3 +179,12 @@ Everything is configurable in the ⚙ window; changes are applied on save
 - No API key is present in the source code, and the built exe contains no key —
   each user enters their own on first run.
 - `.gitignore` excludes `.env`, logs, and build artifacts.
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) — free to use, modify, and distribute.
+
+This project uses the OpenAI API; usage is billed to your own OpenAI account.
+VB-CABLE is a third-party product by VB-Audio and is not bundled with this software.

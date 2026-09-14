@@ -174,3 +174,12 @@ pip install pyinstaller
 - API Key 優先從環境變數 / `.env` 讀取;由 UI 填入時儲存於使用者設定檔
   (`%APPDATA%\YoutubeLiveTranslator\settings.json`,明文,請勿分享該檔案)。
 - 原始碼中**不含**任何 API Key;`.gitignore` 已排除 `.env`、log、建置產物。
+
+---
+
+## 📄 授權
+
+[MIT](LICENSE) — 可自由使用、修改與散布。
+
+本專案使用 OpenAI API,費用由你自己的 OpenAI 帳戶支付。
+VB-CABLE 為 VB-Audio 的第三方產品,未隨本軟體散布。
